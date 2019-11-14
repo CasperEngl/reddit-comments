@@ -1,27 +1,26 @@
 import * as path from 'path';
 
 import { mkdirp } from 'fs-extra';
-import * as puppeteer from 'puppeteer';
+import puppeteer from 'puppeteer';
 import slug from 'slug';
 import commandLineArgs from 'command-line-args';
 import downloadsFolder from 'downloads-folder';
 
 import { optionDefinitions } from './optionDefinitions';
-import { UrlArgumentMissing } from './UrlArgumentMissing';
+import { createVideo } from './createVideo';
+import { askForPostUrl } from './askForPostUrl';
 
-const launch = async () => {
+const launch = async (): Promise<void> => {
   const argv = commandLineArgs(optionDefinitions);
 
-  if (!argv.url) {
-    throw new UrlArgumentMissing('Please paste a link to the reddit post');
-  }
+  const { url } = await askForPostUrl();
 
   const browser = await puppeteer.launch({
-    headless: argv.head ?? true,
+    headless: !argv.head,
   });
   const page = await browser.newPage();
 
-  await page.goto(argv.url, {
+  await page.goto(url, {
     waitUntil: 'networkidle0',
     timeout: 180000,
   });
@@ -37,26 +36,38 @@ const launch = async () => {
         || span.innerHTML.includes('days ago')
         ))
         .forEach(
-          (span: HTMLElement) => span.parentNode?.removeChild(span)
+          (span: HTMLElement) => span.parentNode?.removeChild(span),
         );
     }, 'body');
   }
 
   const titleElement = await page.$x('//h1[last()]');
 
-  const title = slug(await page.evaluate((element) => element.textContent, (titleElement.pop() as puppeteer.ElementHandle<Element>)), {
-    lower: true,
-  });
+  const title = slug(
+    await page.evaluate(
+      (element) => element.textContent, (titleElement.pop() as puppeteer.ElementHandle<Element>),
+    ), {
+      lower: true,
+    },
+  );
 
   const spans = await page.$x('//span[contains(text(), \'level 1\')]');
 
   const comments = await Promise.all(
     spans.map(
       (span) => span.$x('../..').then(
-        (result) => result.pop()
+        (result) => result.pop(),
       ),
     ),
   );
+
+  const dest = argv.path === downloadsFolder()
+    ? `${argv.path}/${title}`
+    : path.join(process.cwd(), `${argv.path}`);
+
+  await mkdirp(dest);
+
+  const paths: string[] = [];
 
   for (const comment of comments) { // eslint-disable-line
     const classNames = await comment?.getProperty('className');
@@ -65,21 +76,19 @@ const launch = async () => {
       lower: true,
     });
 
-    const dest = argv.path === downloadsFolder()
-      ? `${argv.path}/${title}`
-      : path.join(process.cwd(), `${argv.path}`);
-
-    await mkdirp(dest);
-
     await comment?.screenshot({
       path: `${dest}/${name}.png`,
     });
+
+    paths.push(`${dest}/${name}.png`);
   }
+
+  createVideo(paths[0], title);
 
   await browser.close();
 };
 
-(async () => {
+(async (): Promise<void> => {
   try {
     await launch();
   } catch (error) {
