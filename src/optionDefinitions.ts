@@ -1,13 +1,7 @@
-import * as downloadsFolder from 'downloads-folder';
+import downloadsFolder from 'downloads-folder';
 import { OptionDefinition } from 'command-line-args';
 
 export const optionDefinitions: OptionDefinition[] = [
-  {
-    name: 'url',
-    alias: 'u',
-    type: String,
-    defaultOption: true,
-  },
   {
     name: 'headless',
     alias: 'h',
